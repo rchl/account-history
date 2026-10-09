@@ -59,7 +59,7 @@ export default defineEventHandler(async(event) => {
                     }
                     case 'requisitions': {
                         return await api.post('/requisitions/', {
-                            redirect: 'http://localhost:3000/',
+                            redirect: `${getRequestURL(event).origin}/`,
                             institution_id: body.institutionId,
                             ...(body.agreement ? { agreement: body.agreement } : {}),
                         })
