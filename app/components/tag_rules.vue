@@ -42,9 +42,47 @@
                         />
                     </div>
 
-                    <v-btn prepend-icon="mdi-plus" variant="tonal" @click="rules.push({ pattern: '', tag: '' })">
-                        Add rule
-                    </v-btn>
+                    <div class="d-flex flex-wrap ga-2">
+                        <v-btn prepend-icon="mdi-plus" variant="tonal" @click="rules.push({ pattern: '', tag: '' })">
+                            Add rule
+                        </v-btn>
+                        <v-spacer />
+                        <v-btn
+                            v-tooltip="'Add rules from an exported JSON file'"
+                            prepend-icon="mdi-import"
+                            variant="text"
+                            @click="importInput?.click()"
+                        >
+                            Import
+                        </v-btn>
+                        <v-btn
+                            v-tooltip="'Download the rules above as a JSON file'"
+                            prepend-icon="mdi-export"
+                            variant="text"
+                            :disabled="!cleanedRules.length"
+                            @click="exportRules"
+                        >
+                            Export
+                        </v-btn>
+                        <input
+                            ref="importInput"
+                            type="file"
+                            accept=".json,application/json"
+                            hidden
+                            @change="importRules"
+                        >
+                    </div>
+
+                    <v-alert
+                        v-if="importMessage"
+                        :type="importMessage.type"
+                        :text="importMessage.text"
+                        density="compact"
+                        variant="tonal"
+                        closable
+                        class="mt-4"
+                        @click:close="importMessage = null"
+                    />
                 </v-card-text>
 
                 <v-card-actions>
@@ -74,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { compileTagRules, isValidPattern, loadTagRules, saveTagRules, type TagRule } from '~/services/tag_rules'
+import { compileTagRules, isValidPattern, loadTagRules, parseTagRules, saveTagRules, serializeTagRules, type TagRule } from '~/services/tag_rules'
 
 const props = defineProps<{
     data: Account.DataLine[]
@@ -88,11 +126,67 @@ const emit = defineEmits<{
 const dialogOpen = ref(false)
 const rules = ref<TagRule[]>([])
 
+const importInput = ref<HTMLInputElement | null>(null)
+const importMessage = ref<{ type: 'success' | 'error', text: string } | null>(null)
+
 const canSave = computed(() => rules.value.every(rule => isValidPattern(rule.pattern)))
+
+// Rules as they'd be saved: trimmed, with incomplete ones dropped.
+const cleanedRules = computed(() => rules.value
+    .map(rule => ({ pattern: rule.pattern.trim(), tag: (rule.tag ?? '').trim() }))
+    .filter(rule => rule.pattern && rule.tag))
 
 function openDialog() {
     rules.value = loadTagRules()
+    importMessage.value = null
     dialogOpen.value = true
+}
+
+function exportRules() {
+    const blob = new Blob([serializeTagRules(cleanedRules.value)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'tag-rules.json'
+    link.click()
+    URL.revokeObjectURL(url)
+}
+
+// Appends rules from the chosen file, skipping ones already in the list. They're
+// only persisted once the user saves.
+async function importRules(event: Event) {
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
+    // Reset so picking the same file again still fires `change`.
+    input.value = ''
+    if (!file) {
+        return
+    }
+
+    let imported: TagRule[]
+    try {
+        imported = parseTagRules(await file.text())
+    } catch (error) {
+        importMessage.value = { type: 'error', text: `Couldn't import ${file.name}: ${(error as Error).message}` }
+        return
+    }
+
+    const existing = new Set(rules.value.map(rule => `${rule.pattern}\n${rule.tag}`))
+    const added = imported.filter((rule) => {
+        const key = `${rule.pattern}\n${rule.tag}`
+        if (existing.has(key)) {
+            return false
+        }
+        existing.add(key)
+        return true
+    })
+    rules.value.push(...added)
+
+    const skipped = imported.length - added.length
+    importMessage.value = {
+        type: 'success',
+        text: `Imported ${added.length} rule(s)${skipped ? `, skipped ${skipped} duplicate(s)` : ''}. Save to keep them.`,
+    }
 }
 
 function matchCountHint(rule: TagRule): string {
@@ -105,10 +199,7 @@ function matchCountHint(rule: TagRule): string {
 }
 
 function save(applyToExisting: boolean) {
-    const cleaned = rules.value
-        .map(rule => ({ pattern: rule.pattern.trim(), tag: (rule.tag ?? '').trim() }))
-        .filter(rule => rule.pattern && rule.tag)
-    saveTagRules(cleaned)
+    saveTagRules(cleanedRules.value)
     dialogOpen.value = false
     if (applyToExisting) {
         emit('apply-to-existing')
