@@ -1,6 +1,10 @@
 # account-history
 
+[![Netlify Status](https://api.netlify.com/api/v1/badges/5891a314-0b99-422d-b32c-8bb13272267e/deploy-status)](https://app.netlify.com/projects/account-history-no/deploys)
+
 Connect to Norwegian banks and list and plot bank account transactions.
+
+Live: https://account-history-no.netlify.app
 
 Utilizes gocardless API to communicate with the banks - https://developer.gocardless.com/bank-account-data/endpoints/
 
